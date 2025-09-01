@@ -32,7 +32,7 @@
     .row{display:flex;gap:14px;flex-wrap:wrap}
     .panel{padding:16px;border-radius:var(--radius);background:linear-gradient(180deg,var(--panel-2),#111827);border:1px solid rgba(255,255,255,.06)}
     /* Taller input & analysis per your request */
-    
+
     textarea{
       width:95%;
       min-height: 360px;            /* comfy default height */
@@ -70,10 +70,22 @@
     code.inline{background:#0b1220;border:1px solid rgba(255,255,255,.08);padding:1px 6px;border-radius:6px}
     .help{margin-top:10px;color:var(--muted);font-size:.9rem}
     @media (max-width:740px){.summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    /* Center & widen Paste/Clear buttons */
     .paste-row{
-    display:flex;
-    gap:8px;
-    margin-top:8px;
+      display:flex;
+      justify-content:center;  /* center the group */
+      gap:35px;
+      margin-top:8px;
+    }
+    .btn.wide{
+      min-width: 150px;        /* make them wider */
+      padding: 12px 18px;      /* slightly taller */
+    }
+    @media (max-width: 520px){
+      .btn.wide{ min-width: 160px; width: 100%; }
+      .paste-row{ justify-content:center; }
+    }
+
     }
 
   </style>
@@ -118,10 +130,11 @@ Rules:
 • Text in (parentheses) is ignored.
 • Time codes in [brackets] like [1:32] OR [59] add to total time and create clip entries in the breakdown.
 • Supported time formats in [brackets]: mm:ss, h:mm:ss, 90s, 3m 15s, 1h 2m 3s, or a bare number = seconds."></textarea>
-          <div class="paste-row">
-            <button id="btnPaste" class="btn">Paste</button>
-            <button id="btnClear" class="btn secondary">Clear</button>
-          </div>
+        <div class="paste-row">
+          <button id="btnPaste" class="btn wide">Paste</button>
+          <button id="btnClear" class="btn secondary wide">Clear</button>
+        </div>
+
 
           <div class="help">Tip: Include labels with times, e.g. <code class="inline">[Clip 1 – 0:30]</code> or <code class="inline">[B-roll 45]</code>. If there’s text + a number, that text becomes the label; otherwise it’ll be <code class="inline">Clip #</code>.</div>
         </div>
@@ -323,7 +336,7 @@ Rules:
       breakdownBody.appendChild(tr);
       return;
     }
-    
+
 
     parts.forEach((p,i)=>{
       const tr = document.createElement('tr');
@@ -418,6 +431,45 @@ Now we continue speaking to explain the context around the story and why it matt
 [B-roll 59]
 Then we wrap with a call to action. Check the description for sources (not spoken).`;
 
+const overlay = document.getElementById('pasteOverlay');
+const catcher = document.getElementById('pasteCatcher');
+
+async function tryAsyncClipboardRead(){
+  if (!(window.isSecureContext && navigator.clipboard && navigator.clipboard.readText)) {
+    throw new Error('Clipboard API not available');
+  }
+  try {
+    if (navigator.permissions?.query) {
+      const p = await navigator.permissions.query({ name: 'clipboard-read' });
+      if (p.state === 'denied') throw new Error('Clipboard read denied');
+    }
+  } catch(_) {}
+  return await navigator.clipboard.readText();
+}
+
+async function pasteFromClipboard(){
+  try {
+    const text = await tryAsyncClipboardRead();
+    if (text) { scriptEl.value = text; calculate(); toast('Pasted from clipboard'); return; }
+    throw new Error('Empty clipboard');
+  } catch {
+    overlay.hidden = false;
+    catcher.textContent = '';
+    setTimeout(()=>catcher.focus(), 0);
+  }
+}
+
+document.getElementById('btnPaste').addEventListener('click', pasteFromClipboard);
+document.getElementById('usePasted').addEventListener('click', ()=>{
+  const text = catcher.textContent || '';
+  overlay.hidden = true;
+  if (text.trim().length) { scriptEl.value = text; calculate(); toast('Pasted'); }
+  catcher.textContent = '';
+});
+document.getElementById('cancelPaste').addEventListener('click', ()=>{ overlay.hidden = true; catcher.textContent = ''; });
+overlay.addEventListener('keydown', (e)=>{ if(e.key === 'Escape'){ overlay.hidden = true; catcher.textContent = ''; }});
+
+
   // ---- Events (AUTOMATIC CALCULATION) ----
   document.getElementById('btnCopy').addEventListener('click', copyBreakdown);
   document.getElementById('btnExport').addEventListener('click', exportJSON);
@@ -436,6 +488,24 @@ Then we wrap with a call to action. Check the description for sources (not spoke
 
   // First paint
   calculate();
+
+
+
+
   </script>
+
+
+  <div id="pasteOverlay" class="overlay" hidden aria-modal="true" role="dialog">
+  <div class="modal">
+    <h3>Paste from clipboard</h3>
+    <p>Press <kbd>Ctrl</kbd>+<kbd>V</kbd> (or <kbd>⌘</kbd>+<kbd>V</kbd>) now.</p>
+    <div id="pasteCatcher" class="catcher" contenteditable="true" spellcheck="false" aria-label="Paste here"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button id="cancelPaste" class="btn secondary">Cancel</button>
+      <button id="usePasted" class="btn">Use Pasted Text</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
