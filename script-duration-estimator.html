@@ -440,6 +440,7 @@ Then we wrap with a call to action. Check the description for sources (not spoke
   // ---- Events (AUTOMATIC CALCULATION) ----
   document.getElementById('btnCopy').addEventListener('click', copyBreakdown);
   document.getElementById('btnExport').addEventListener('click', exportJSON);
+  document.getElementById('wpmPreset').addEventListener('change', calculate);
   document.getElementById('btnClear').addEventListener('click', ()=>{
     scriptEl.value='';
     breakdownBody.innerHTML='<tr><td colspan="3" class="muted">Cleared.</td></tr>';
