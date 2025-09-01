@@ -129,7 +129,12 @@ Rules:
 • Links are ignored (not counted as spoken).
 • Text in (parentheses) is ignored.
 • Time codes in [brackets] like [1:32] OR [59] add to total time and create clip entries in the breakdown.
-• Supported time formats in [brackets]: mm:ss, h:mm:ss, 90s, 3m 15s, 1h 2m 3s, or a bare number = seconds."></textarea>
+• Supported time formats in [brackets]: mm:ss, h:mm:ss, 90s, 3m 15s, 1h 2m 3s, or a bare number = seconds."
+oninput="window.calculate && window.calculate()"
+onkeyup="window.calculate && window.calculate()"
+onpaste="setTimeout(()=>window.calculate && window.calculate(), 0)"
+oncut="setTimeout(()=>window.calculate && window.calculate(), 0)"
+ondrop="setTimeout(()=>window.calculate && window.calculate(), 0)"></textarea>
         <div class="paste-row">
           <button id="btnPaste" class="btn wide">Paste</button>
           <button id="btnClear" class="btn secondary wide">Clear</button>
@@ -431,44 +436,6 @@ Now we continue speaking to explain the context around the story and why it matt
 [B-roll 59]
 Then we wrap with a call to action. Check the description for sources (not spoken).`;
 
-const overlay = document.getElementById('pasteOverlay');
-const catcher = document.getElementById('pasteCatcher');
-
-async function tryAsyncClipboardRead(){
-  if (!(window.isSecureContext && navigator.clipboard && navigator.clipboard.readText)) {
-    throw new Error('Clipboard API not available');
-  }
-  try {
-    if (navigator.permissions?.query) {
-      const p = await navigator.permissions.query({ name: 'clipboard-read' });
-      if (p.state === 'denied') throw new Error('Clipboard read denied');
-    }
-  } catch(_) {}
-  return await navigator.clipboard.readText();
-}
-
-async function pasteFromClipboard(){
-  try {
-    const text = await tryAsyncClipboardRead();
-    if (text) { scriptEl.value = text; calculate(); toast('Pasted from clipboard'); return; }
-    throw new Error('Empty clipboard');
-  } catch {
-    overlay.hidden = false;
-    catcher.textContent = '';
-    setTimeout(()=>catcher.focus(), 0);
-  }
-}
-
-document.getElementById('btnPaste').addEventListener('click', pasteFromClipboard);
-document.getElementById('usePasted').addEventListener('click', ()=>{
-  const text = catcher.textContent || '';
-  overlay.hidden = true;
-  if (text.trim().length) { scriptEl.value = text; calculate(); toast('Pasted'); }
-  catcher.textContent = '';
-});
-document.getElementById('cancelPaste').addEventListener('click', ()=>{ overlay.hidden = true; catcher.textContent = ''; });
-overlay.addEventListener('keydown', (e)=>{ if(e.key === 'Escape'){ overlay.hidden = true; catcher.textContent = ''; }});
-
 
   // ---- Events (AUTOMATIC CALCULATION) ----
   document.getElementById('btnCopy').addEventListener('click', copyBreakdown);
@@ -480,11 +447,23 @@ overlay.addEventListener('keydown', (e)=>{ if(e.key === 'Escape'){ overlay.hidde
   });
   document.getElementById('btnSample').addEventListener('click', ()=>{ scriptEl.value = sample; toast('Sample loaded'); calculate(); });
 
-  // Recalculate automatically on changes
-  const debounce = (fn, ms=200)=>{ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); }; };
-  scriptEl.addEventListener('input', debounce(calculate, 200));
+  // Recalculate automatically on changes (robust, cross-browser)
+  const recalc = debounce(calculate, 200);
+
+  // Covers normal typing and most edits
+  ['input', 'keyup', 'change'].forEach(evt => {
+    scriptEl.addEventListener(evt, recalc);
+  });
+
+  // Some browsers delay firing 'input' for clipboard & DnD; force a tick later
+  ['paste', 'cut', 'drop'].forEach(evt => {
+    scriptEl.addEventListener(evt, () => setTimeout(calculate, 0));
+  });
+
+  // Update when WPM controls change
   wpmPresetEl.addEventListener('change', calculate);
-  wpmCustomEl.addEventListener('input', ()=>{ if(wpmCustomEl.value) calculate(); });
+  wpmCustomEl.addEventListener('input', () => { if (wpmCustomEl.value) calculate(); });
+
 
   // First paint
   calculate();
@@ -495,17 +474,23 @@ overlay.addEventListener('keydown', (e)=>{ if(e.key === 'Escape'){ overlay.hidde
   </script>
 
 
-  <div id="pasteOverlay" class="overlay" hidden aria-modal="true" role="dialog">
-  <div class="modal">
-    <h3>Paste from clipboard</h3>
-    <p>Press <kbd>Ctrl</kbd>+<kbd>V</kbd> (or <kbd>⌘</kbd>+<kbd>V</kbd>) now.</p>
-    <div id="pasteCatcher" class="catcher" contenteditable="true" spellcheck="false" aria-label="Paste here"></div>
-    <div style="display:flex;gap:8px;justify-content:flex-end">
-      <button id="cancelPaste" class="btn secondary">Cancel</button>
-      <button id="usePasted" class="btn">Use Pasted Text</button>
-    </div>
-  </div>
-</div>
+<script>
+// ---- Minimal, robust auto-recalc listeners (independent) ----
+(function(){
+  function safeCalc(){
+    try { if (typeof window.calculate === 'function') window.calculate(); } catch (e) {}
+  }
+  var ta = document.getElementById('script');
+  if (!ta) return;
+  ['input','keyup','change'].forEach(function(evt){
+    ta.addEventListener(evt, safeCalc);
+  });
+  ['paste','cut','drop'].forEach(function(evt){
+    ta.addEventListener(evt, function(){ setTimeout(safeCalc, 0); });
+  });
+})();
+</script>
+
 
 </body>
 </html>
