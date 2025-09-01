@@ -323,7 +323,7 @@ ondrop="setTimeout(()=>window.calculate && window.calculate(), 0)"></textarea>
 
   function currentWPM(){
     const custom = parseInt(wpmCustomEl.value,10);
-    if(!isNaN(custom) && custom >= 60 && custom <= 300) return custom;
+    if(!isNaN(custom) && custom >= 1 && custom <= 100000) return custom;
     return parseInt(wpmPresetEl.value,10);
   }
 
@@ -441,6 +441,7 @@ Then we wrap with a call to action. Check the description for sources (not spoke
   document.getElementById('btnCopy').addEventListener('click', copyBreakdown);
   document.getElementById('btnExport').addEventListener('click', exportJSON);
   document.getElementById('wpmPreset').addEventListener('change', calculate);
+  document.getElementById('wpmCustom').addEventListener('input', () => { if (wpmCustomEl.value) calculate(); });
   document.getElementById('btnClear').addEventListener('click', ()=>{
     scriptEl.value='';
     breakdownBody.innerHTML='<tr><td colspan="3" class="muted">Cleared.</td></tr>';
