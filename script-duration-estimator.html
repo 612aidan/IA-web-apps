@@ -128,7 +128,7 @@
 Rules:
 • Links are ignored (not counted as spoken).
 • Text in (parentheses) is ignored.
-• Time codes in [brackets] like [1:32] OR [59] add to total time and create clip entries in the breakdown.
+• Time codes in [brackets] like [1:32], [59], or a range like [2:48-4:46] add to total time and create clip entries in the breakdown.
 • Supported time formats in [brackets]: mm:ss, h:mm:ss, 90s, 3m 15s, 1h 2m 3s, or a bare number = seconds."
 oninput="window.calculate && window.calculate()"
 onkeyup="window.calculate && window.calculate()"
@@ -237,6 +237,46 @@ ondrop="setTimeout(()=>window.calculate && window.calculate(), 0)"></textarea>
     return m ? m.length : 0;
   }
 
+  function isLikelyOutlineHeading(line){
+    // After stripping ( ) and [ ] etc, decide if this line is an outline heading like "Intro", "Main Point", "Outro".
+    // Rules:
+    //  - 1–3 words total
+    //  - contains only word characters/spaces (no sentence punctuation)
+    //  - words are Title Case or ALL CAPS (helps avoid skipping short sentences like "I agree")
+    const t = (line || '').trim();
+    if(!t) return false;
+    if(/[.?!,:;]$/.test(t)) return false;
+
+    const words = t.match(/\b[\p{L}\p{N}'’-]+\b/gu) || [];
+    if(words.length < 1 || words.length > 3) return false;
+
+    // Ensure the entire line is just these words + spaces
+    const justWords = t.replace(/\b[\p{L}\p{N}'’-]+\b/gu, '').trim();
+    if(justWords.length !== 0) return false;
+
+    function isTitleOrAllCaps(w){
+      const up = w.toUpperCase();
+      const low = w.toLowerCase();
+      if(w === up) return true;
+      return w[0] === up[0] && w.slice(1) === low.slice(1);
+    }
+    return words.every(isTitleOrAllCaps);
+  }
+
+  function countSpokenWordsPreservingHeadings(rawText){
+    if(!rawText) return 0;
+    // Work line-by-line so outline headings like "Intro" don't count as spoken.
+    const lines = String(rawText).split(/\r?\n/);
+    let total = 0;
+    for(const line of lines){
+      const cleaned = stripNonSpoken(line);
+      if(!cleaned) continue;
+      if(isLikelyOutlineHeading(cleaned)) continue;
+      total += countWords(cleaned);
+    }
+    return total;
+  }
+
   // Auto-labeling: If [<text + number>] => label = text (time removed). If only [<number>] => "Clip #".
   function analyze(script, wpm){
     const parts = []; // {type:'spoken'|'clip', seconds, words?, label?}
@@ -246,15 +286,56 @@ ondrop="setTimeout(()=>window.calculate && window.calculate(), 0)"></textarea>
 
     while((m = re.exec(script)) !== null){
       const before = script.slice(cursor, m.index);
-      const spokenText = stripNonSpoken(before);
-      const words = countWords(spokenText);
+      const words = countSpokenWordsPreservingHeadings(before);
       const spokenSeconds = words > 0 ? (words / wpm) * 60 : 0;
       if(spokenSeconds > 0){
         parts.push({type:'spoken', seconds: spokenSeconds, words});
       }
 
       const inside = m[1];
-      const clipSeconds = parseFlexibleTime(inside);
+
+      // Support ranges like [2:48-4:46] => duration between the two timecodes
+      let clipSeconds = null;
+      const rangeSepRE = /[-–—]/;
+      if (rangeSepRE.test(inside)) {
+        // Prefer colon-based timecodes (mm:ss or h:mm:ss)
+        const colonTimes = inside.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g);
+        if (colonTimes && colonTimes.length >= 2) {
+          const start = parseFlexibleTime(colonTimes[0]);
+          const end = parseFlexibleTime(colonTimes[1]);
+          if (start != null && end != null) {
+            clipSeconds = Math.abs(end - start);
+          }
+        } else {
+          // Fallback: unit-based times (e.g., 2m 10s - 3m 05s)
+          const unitTimes = inside.match(/\b(?:\d+\s*h(?:\s*\d+\s*m(?:in)?s?)?(?:\s*\d+\s*s(?:ec)?s?)?|\d+\s*m(?:in)?s?(?:\s*\d+\s*s(?:ec)?s?)?|\d+\s*s(?:ec)?s?)\b/gi);
+          if (unitTimes && unitTimes.length >= 2) {
+            const start = parseFlexibleTime(unitTimes[0]);
+            const end = parseFlexibleTime(unitTimes[1]);
+            if (start != null && end != null) {
+              clipSeconds = Math.abs(end - start);
+            }
+          }
+        }
+
+        // Fallback: bare seconds range (e.g., 31-41)
+        if (clipSeconds == null) {
+          const pieces = inside.split(rangeSepRE).map(s => s.trim()).filter(Boolean);
+          if (pieces.length >= 2) {
+            const start = parseFlexibleTime(pieces[0]);
+            const end = parseFlexibleTime(pieces[1]);
+            if (start != null && end != null) {
+              clipSeconds = Math.abs(end - start);
+            }
+          }
+        }
+      }
+
+      // Default behavior: treat the bracket as a single duration/time value
+      if (clipSeconds == null) {
+        clipSeconds = parseFlexibleTime(inside);
+      }
+
       if(clipSeconds && clipSeconds > 0){
         clipIndex += 1;
 
@@ -296,8 +377,7 @@ ondrop="setTimeout(()=>window.calculate && window.calculate(), 0)"></textarea>
 
     // Trailing spoken
     const tail = script.slice(cursor);
-    const tailSpoken = stripNonSpoken(tail);
-    const tailWords = countWords(tailSpoken);
+    const tailWords = countSpokenWordsPreservingHeadings(tail);
     const tailSecs = tailWords > 0 ? (tailWords / wpm) * 60 : 0;
     if(tailSecs > 0){ parts.push({type:'spoken', seconds: tailSecs, words: tailWords}); }
 
@@ -441,7 +521,7 @@ Then we wrap with a call to action. Check the description for sources (not spoke
   document.getElementById('btnCopy').addEventListener('click', copyBreakdown);
   document.getElementById('btnExport').addEventListener('click', exportJSON);
   document.getElementById('wpmPreset').addEventListener('change', calculate);
-  document.getElementById('wpmCustom').addEventListener('input', () => { if (wpmCustomEl.value) calculate(); });
+  document.getElementById('wpmCustom').addEventListener('input', () => { calculate(); });
   document.getElementById('btnClear').addEventListener('click', ()=>{
     scriptEl.value='';
     breakdownBody.innerHTML='<tr><td colspan="3" class="muted">Cleared.</td></tr>';
@@ -464,7 +544,7 @@ Then we wrap with a call to action. Check the description for sources (not spoke
 
   // Update when WPM controls change
   wpmPresetEl.addEventListener('change', calculate);
-  wpmCustomEl.addEventListener('input', () => { if (wpmCustomEl.value) calculate(); });
+  wpmCustomEl.addEventListener('input', () => { calculate(); });
 
 
   // First paint
